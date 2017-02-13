@@ -1,5 +1,8 @@
 import pygame, sys, wave, numpy, struct, Queue, math, time as tm
 from pygame.locals import *
+
+
+
 def fftMag(fftResult):
     magnitudes = []
     reals = numpy.real(fftResult)
@@ -9,7 +12,8 @@ def fftMag(fftResult):
     return magnitudes
 
 def getAudioFrames(wav, start, length):
-    wav.setpos(start)
+    #wav.setpos(start)
+    startPosition = wav.tell()
     leftSamples = []
     for i in range(length):
         currentFrame = wav.readframes(1)
@@ -21,79 +25,80 @@ def getAudioFrames(wav, start, length):
         #print type(leftSample)
         leftSamples.append(leftSample[0])
         #rightSample = struct.unpack("<h", rightString)
-    return leftSamples
+    return leftSamples, startPosition,start
 
 
-def main():
+def main(wavFileName):
     # my code here
     pygame.init()
-    DISPLAYSURF = pygame.display.set_mode((1799, 300))
+    #DISPLAYSURF = pygame.display.set_mode((1799, 500))
+    numBins = 512
+    DISPLAYSURF = pygame.display.set_mode((numBins/2*7+20, 500))
     pygame.display.set_caption('Hello, world!')
 
     WHITE = (255, 255, 255)
     GREEN = (  0, 255,   0)
     BLUE  = (  0,   0, 128)
 
-    fontObj = pygame.font.Font('freesansbold.ttf', 32)
-    textSurfaceObj = fontObj.render('Hello, world!', True, GREEN, BLUE)
-    textRectObj = textSurfaceObj.get_rect()
-    textRectObj.center = (200, 150)
+    mixer = pygame.mixer.init(frequency=22050, size=16, channels=2, buffer=(32*1024))
 
-    mixer = pygame.mixer.init(frequency=22050, size=16, channels=2, buffer=(8*4096))
-    wav = wave.open("solo2.wav")
+    wav = wave.open(wavFileName)
     numberOfFrames = wav.getnframes()
     videoClock = pygame.time.Clock()
+
+    runningTime = numberOfFrames/wav.getframerate()
     print "Framerate:    {}".format(wav.getframerate())
     print "Samples:      {}".format(numberOfFrames)
     print "Sample Width: {}".format(wav.getsampwidth())
     print "Num Chanels:  {}".format(wav.getnchannels())
+    print "Running Time: {}".format(runningTime)
+    sound = pygame.mixer.Sound(file=wavFileName)
 
-    print "Time: {}".format(TIMER_RESOLUTION)
-    '''for i in range(numberOfFrames):
-        currentFrame = wav.readframes(1)
-        leftString = currentFrame[:2]
-        rightString = currentFrame[2:]
-        leftSample = struct.unpack("<h", leftString)
-        rightSample = struct.unpack("<h", rightString)
-        #leftSample = (ord(currentFrame[0]) << 8) + ord(currentFrame[1])
-        #rightSample = (ord(currentFrame[2]) << 8) + ord(currentFrame[3])
-        ##print("{},{}".format(leftSample, rightSample))
-    '''
-    sound = pygame.mixer.Sound(file="solo2.wav")
-
-    #mixer.play()
     window = []
     videoFrames = []
-    fps = 30
-    seconds = 4
+    fps = 60
+    seconds = runningTime
+    audioSamples = []
     numVFrames = seconds * fps
+    lastStart = 0
+    toRead = 0;
     for i in range(numVFrames):
         secondStart = i/float(fps)
         audioSampleStart = secondStart * 44100
-        audioSamples = getAudioFrames(wav,audioSampleStart,1024)
-        #print "secondStart: {} audioSampleStart: {}".format(secondStart, audioSampleStart)
-        #print audioSamples
+        lastStart = audioSampleStart
+        wav.readframes(toRead)
+        audioSamples,a,b = getAudioFrames(wav,audioSampleStart,numBins)
+        toRead = int(audioSampleStart - a)
+
         fftResult = numpy.fft.rfft(audioSamples)
         fftMagnitude = fftMag(fftResult)
+        for i in range(len(fftMagnitude)):
+            fftMagnitude[i] = fftMagnitude[i]/2500
         videoFrames.append(fftMagnitude)
-
-        #print fftMagnitude
-        #print len(fftMagnitude)
 
     print "VideoFrames: {}".format(len(videoFrames))
 
+
+
     sound.play()
+    pygame.mixer.pause()
+    garbage  = True
     startTime = pygame.time.get_ticks()
     msBetween = (1/float(fps))*1000;
-
+    numVideoFrames = float(fps)*runningTime
+    pygame.mixer.unpause()
     while True:
         DISPLAYSURF.fill(WHITE)
-        #DISPLAYSURF.blit(textSurfaceObj, textRectObj)
         time = pygame.time.get_ticks()-startTime
-        frameNumber = int(time/msBetween)
-        if(frameNumber<120):
+        frameNumber = -10 + int(time/(msBetween))
+        if(frameNumber<0):
+            garbage = False
+        elif(frameNumber<numVFrames):
             for i in range(len(videoFrames[frameNumber])):
-                pygame.draw.rect(DISPLAYSURF,BLUE,[i*7,50,5,videoFrames[frameNumber][i]])
+                pygame.draw.rect(DISPLAYSURF,BLUE,[i*7,50,5,(videoFrames[frameNumber][i])])
+        else:
+            startTime = pygame.time.get_ticks()
+            sound.play()
         for event in pygame.event.get():
             if event.type == QUIT:
                 pygame.quit()
@@ -104,4 +109,6 @@ def main():
         #print videoClock.get_fps()
 
 if __name__ == "__main__":
-    main()
+    if(len(sys.argv) < 2):
+        print "Usage: ./game.py <wavefile>"
+    main(sys.argv[1])
